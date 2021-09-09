@@ -54,9 +54,13 @@ $GLOBALS['wgExtensionFunctions'][] = function() {
 			return createPageIfNotExisting( func_get_args() );
 		} );
 
+        $parser->setFunctionHook( 'append2Page', function( $parser ) {
+            return append2Page( func_get_args() );
+        } );
 	};
 
 	$GLOBALS['wgHooks']['ArticleEditUpdates'][] = 'doCreatePages';
+    $GLOBALS['wgHooks']['ArticleEditUpdates'][] = 'doAppend2Pages';
 };
 
 /**
@@ -144,5 +148,78 @@ function doCreatePages( &$article, &$editInfo, $changed ) {
 	$egAutoCreatePageMaxRecursion++;
 
 	return true;
+}
+
+/*
+ *
+ */
+
+function append2Page(array $rawParams) {
+    global $egAutoCreatePageMaxRecursion, $egAutoCreatePageNamespaces;
+
+    if ( isset( $rawParams[0] ) && isset( $rawParams[1] ) && isset( $rawParams[2] ) ) {
+        $parser = $rawParams[0];
+        $targetPageTitleText = $rawParams[1];
+        $targetPageContent2Append = $rawParams[2];
+    } else {
+        throw new MWException( 'Hook invoked with missing parameters.' );
+    }
+
+    if ( empty( $targetPageTitleText ) ) {
+        return 'Error: this function must be given a valid title text for the page to which contend will be appended.';
+    }
+
+    // Append content to pages only if the page calling the parser function is within defined namespaces
+    if ( !in_array( $parser->getTitle()->getNamespace(), $egAutoCreatePageNamespaces ) ) {
+        return '';
+    }
+
+    // Get the raw text of $targetPageContent2Append as it was before stripping <nowiki>:
+    $targetPageContent2Append = $parser->mStripState->unstripNoWiki( $targetPageContent2Append );
+
+    // Store data in the parser output for later use:
+    $append2PageData = $parser->getOutput()->getExtensionData( 'append2Page' );
+    if ( is_null( $append2PageData ) ) {
+        $append2PageData = array();
+    }
+    $append2PageData[$targetPageTitleText] = $targetPageContent2Append;
+    $parser->getOutput()->setExtensionData( 'append2Page', $append2PageData );
+
+    return "";
+}
+
+function doAppend2Pages(&$article, &$editInfo, $changed) {
+    global $egAutoCreatePageMaxRecursion;
+
+    $append2PageData = $editInfo->output->getExtensionData( 'append2Page' );
+    if ( is_null( $append2PageData ) ) {
+        return true; // no pages to which content will be appended
+    }
+
+    // Prevent appending content to pages by pages to which content has been appended to avoid loops:
+    $egAutoCreatePageMaxRecursion--;
+
+    $sourceTitle = $article->getTitle(); // title object
+    $sourceTitleText = $sourceTitle->getPrefixedText(); // displayed text of title
+
+    foreach ( $append2PageData as $pageTitleText => $pageContentText2Append ) {
+        $pageTitle = Title::newFromText( $pageTitleText );
+
+        if ( !is_null( $pageTitle ) && $pageTitle->isKnown() ){
+            $targetWikiPage = new WikiPage( $pageTitle );
+            $currentText = $targetWikiPage->getText();
+
+            $targetWikiPage->doEdit( $currentText . $pageContentText2Append,
+                "Content appended to Page automatically by parser function on page [[$sourceTitleText]]" );
+
+            // wfDebugLog( 'append2Page', "CREATED PAGE " . $pageTitle->getText() . " Text: " . $pageContent );
+        }
+    }
+
+    // Reset state. Probably not needed since parsing is usually done here anyway:
+    $editInfo->output->setExtensionData( 'append2Page', null );
+    $egAutoCreatePageMaxRecursion++;
+
+    return true;
 }
 
