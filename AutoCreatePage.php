@@ -219,7 +219,7 @@ function doAppend2Pages(&$article, &$editInfo, $changed) {
 
             $targetWikiPage = new WikiPage( $pageTitle );
             $currentText = $targetWikiPage->getContent()->getText();
-            $newContent = ContentHandler::makeContent( $currentText . $pageContentText2Append, $sourceTitle );
+            $newContent = ContentHandler::makeContent( $currentText . str_replace("<br/>", "<br/>" . PHP_EOL, $pageContentText2Append), $sourceTitle );
 
             // $targetWikiPage->doEdit( $currentText . $pageContentText2Append,
             $targetWikiPage->doEditContent( $newContent,
